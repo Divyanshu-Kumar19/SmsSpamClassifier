@@ -1,12 +1,29 @@
-import streamlit as st
 import pickle
 import string
-import nltk
 
+import nltk
+import streamlit as st
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 
-ps = PorterStemmer()
+
+# -------------------------
+# Configuration
+# -------------------------
+
+VECTORIZER_PATH = "vectorizer.pkl"
+MODEL_PATH = "model.pkl"
+
+
+# -------------------------
+# NLTK Setup
+# -------------------------
+
+nltk.download("stopwords", quiet=True)
+nltk.download("punkt", quiet=True)
+nltk.download("punkt_tab", quiet=True)
+
+stemmer = PorterStemmer()
 stop_words = set(stopwords.words("english"))
 
 
@@ -14,69 +31,83 @@ stop_words = set(stopwords.words("english"))
 # Text Preprocessing
 # -------------------------
 
-def transform_text(text):
-
-    # Lowercase
+def transform_text(text: str) -> str:
     text = text.lower()
 
-    # Tokenization
-    text = nltk.word_tokenize(text)
+    tokens = nltk.word_tokenize(text)
 
-    # Remove special characters
-    y = []
+    tokens = [
+        token
+        for token in tokens
+        if token.isalnum()
+        and token not in stop_words
+        and token not in string.punctuation
+    ]
 
-    for i in text:
-        if i.isalnum():
-            y.append(i)
+    tokens = [stemmer.stem(token) for token in tokens]
 
-    # Remove stopwords
-    text = y[:]
-    y.clear()
-
-    for i in text:
-        if i not in stop_words and i not in string.punctuation:
-            y.append(i)
-
-    # Stemming
-    text = y[:]
-    y.clear()
-
-    for i in text:
-        y.append(ps.stem(i))
-
-    return " ".join(y)
+    return " ".join(tokens)
 
 
 # -------------------------
-# Load Model & Vectorizer
+# Load Model and Vectorizer
 # -------------------------
 
-tfidf = pickle.load(open("vectorizer.pkl", "rb"))
-model = pickle.load(open("model.pkl", "rb"))
+@st.cache_resource
+def load_model():
+    with open(VECTORIZER_PATH, "rb") as file:
+        vectorizer = pickle.load(file)
+
+    with open(MODEL_PATH, "rb") as file:
+        model = pickle.load(file)
+
+    return vectorizer, model
+
+
+tfidf, model = load_model()
 
 
 # -------------------------
-# Streamlit UI
+# Streamlit Configuration
 # -------------------------
 
-st.title("📱 Email/SMS Spam Classifier")
+st.set_page_config(
+    page_title="SMS Spam Classifier",
+    page_icon=None,
+    layout="centered"
+)
 
-input_sms = st.text_area("Enter the message")
+st.title("SMS Spam Classifier")
+st.write("Enter an SMS message to determine whether it is spam or not spam.")
 
 
-if st.button("Predict"):
+# -------------------------
+# User Input
+# -------------------------
 
-    # 1. Preprocess
-    transformed_sms = transform_text(input_sms)
+input_sms = st.text_area(
+    "Enter your message",
+    placeholder="Enter an SMS message here...",
+    height=150
+)
 
-    # 2. Vectorize
-    vector_input = tfidf.transform([transformed_sms])
 
-    # 3. Predict
-    result = model.predict(vector_input)[0]
+# -------------------------
+# Prediction
+# -------------------------
 
-    # 4. Display
-    if result == 1:
-        st.error("Spam")
+if st.button("Predict", use_container_width=True):
+
+    if not input_sms.strip():
+        st.warning("Please enter a message.")
     else:
-        st.success("Not Spam")
+        transformed_sms = transform_text(input_sms)
+
+        vector_input = tfidf.transform([transformed_sms])
+
+        prediction = model.predict(vector_input)[0]
+
+        if prediction == 1:
+            st.error("Spam")
+        else:
+            st.success("Not Spam")
